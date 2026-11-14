@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { shallowRef, ref } from 'vue'
+import { computed, shallowRef, ref } from 'vue'
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -17,6 +17,11 @@ export const useAuthStore = defineStore('auth', () => {
   const profileReady = ref(false)
   const authError = ref('')
   const profileSyncs = new Map()
+  const role = computed(() => userProfile.value?.role ?? 'guest')
+  const isAdmin = computed(() => role.value === 'admin')
+  const isParent = computed(() => role.value === 'parent')
+  const canManageMembers = computed(() => isAdmin.value)
+  const canManageRules = computed(() => isAdmin.value || isParent.value)
   let resolveAuthReady
 
   const authReady = new Promise((resolve) => {
@@ -168,6 +173,11 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     currentUser,
     userProfile,
+    role,
+    isAdmin,
+    isParent,
+    canManageMembers,
+    canManageRules,
     isReady,
     profileReady,
     authError,

@@ -1,4 +1,5 @@
 <script setup>
+import { onMounted } from 'vue'
 import { useFamilyStore } from '@/stores/familyStore'
 import { useTaskStore } from '@/stores/taskStore'
 import { useShoppingStore } from '@/stores/shoppingStore'
@@ -8,6 +9,10 @@ const familyStore = useFamilyStore()
 const taskStore = useTaskStore()
 const shoppingStore = useShoppingStore()
 const calendarStore = useCalendarStore()
+
+onMounted(() => {
+  familyStore.load().catch(() => {})
+})
 
 const today = new Date().toISOString().split('T')[0]
 const todayEvents = calendarStore.events.filter(e => e.date === today)

@@ -1,9 +1,53 @@
 rules_version = '2';
 
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: Firebase Auth UID
+// Fields:
+//   - uid: string (required, immutable) - Firebase Auth UID
+//   - email: string (required) - account email
+//   - displayName: string|null (required) - auth display name
+//   - photoURL: string|null (required) - auth photo URL
+//   - role: string (required, immutable from client) - 'guest' on create,
+//     promoted to 'admin' / 'parent' only from a trusted environment
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (required)
+//
+// Collection: members
+// Document ID: auto-generated
+// Fields:
+//   - name: string (required, 1-60 chars)
+//   - role: string (required) - 'Parent' or 'Child'
+//   - avatar: string (required, max 32 chars)
+//   - color: string (required) - '#rrggbb'
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (required)
+//
+// Collection: rules
+// Document ID: auto-generated
+// Fields:
+//   - text: string (required, 1-200 chars)
+//   - icon: string (required, max 32 chars)
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (required)
+//
+// ===============================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
     function isOwner(userId) {
-      return request.auth != null && request.auth.uid == userId;
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
     function matchesAuthProfile(data, userId) {
@@ -12,6 +56,51 @@ service cloud.firestore {
         && data.displayName == request.auth.token.get('name', null)
         && data.photoURL == request.auth.token.get('picture', null);
     }
+
+    function userRole() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : '';
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && userRole() == 'admin';
+    }
+
+    function isParent() {
+      return isAuthenticated() && userRole() == 'parent';
+    }
+
+    function canManageRules() {
+      return isAdmin() || isParent();
+    }
+
+    function hasOnlyAllowedFields(data, fields) {
+      return data.keys().hasOnly(fields);
+    }
+
+    function isValidMember(data) {
+      return data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 60
+        && data.role in ['Parent', 'Child']
+        && data.avatar is string
+        && data.avatar.size() <= 32
+        && data.color is string
+        && data.color.matches('^#[0-9a-fA-F]{6}$');
+    }
+
+    function isValidRule(data) {
+      return data.text is string
+        && data.text.size() > 0
+        && data.text.size() <= 200
+        && data.icon is string
+        && data.icon.size() <= 32;
+    }
+
+    // ===============================================================
+    // Users
+    // ===============================================================
 
     match /users/{userId} {
       allow get: if isOwner(userId);
@@ -35,9 +124,72 @@ service cloud.firestore {
         ])
         && matchesAuthProfile(request.resource.data, userId)
         && request.resource.data.role == resource.data.role
+        && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt == request.time;
 
       allow delete: if false;
+    }
+
+    // ===============================================================
+    // Members - readable by any signed-in user, managed by admins only
+    // ===============================================================
+
+    match /members/{memberId} {
+      allow read: if isAuthenticated();
+
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasAll([
+          'name', 'role', 'avatar', 'color', 'createdAt', 'updatedAt'
+        ])
+        && hasOnlyAllowedFields(request.resource.data, [
+          'name', 'role', 'avatar', 'color', 'createdAt', 'updatedAt'
+        ])
+        && isValidMember(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if isAdmin()
+        && request.resource.data.keys().hasAll([
+          'name', 'role', 'avatar', 'color', 'createdAt', 'updatedAt'
+        ])
+        && hasOnlyAllowedFields(request.resource.data, [
+          'name', 'role', 'avatar', 'color', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'role', 'avatar', 'color', 'updatedAt'
+        ])
+        && isValidMember(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if isAdmin();
+    }
+
+    // ===============================================================
+    // Rules - readable by any signed-in user, managed by admins/parents
+    // ===============================================================
+
+    match /rules/{ruleId} {
+      allow read: if isAuthenticated();
+
+      allow create: if canManageRules()
+        && request.resource.data.keys().hasAll(['text', 'icon', 'createdAt', 'updatedAt'])
+        && hasOnlyAllowedFields(request.resource.data, ['text', 'icon', 'createdAt', 'updatedAt'])
+        && isValidRule(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if canManageRules()
+        && request.resource.data.keys().hasAll(['text', 'icon', 'createdAt', 'updatedAt'])
+        && hasOnlyAllowedFields(request.resource.data, ['text', 'icon', 'createdAt', 'updatedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'text', 'icon', 'updatedAt'
+        ])
+        && isValidRule(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if canManageRules();
     }
   }
 }
