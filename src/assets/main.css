@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@theme {
+  --color-family-primary: #16a34a;
+  --color-family-secondary: #0ea5e9;
+  --color-family-accent: #f59e0b;
+  --color-family-warm: #fef3c7;
+  --font-family-display: "Nunito", system-ui, sans-serif;
+}
